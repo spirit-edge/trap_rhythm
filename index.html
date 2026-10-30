@@ -1734,6 +1734,17 @@ button:disabled {
 }
 
 
+#save-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #ffe9a8;
+}
+
+#save-note:empty {
+  display: none;
+}
+
+
 
 #replay-name {
   position: absolute;
@@ -2256,6 +2267,7 @@ button:disabled {
         <input type="text" id="message-input" maxlength="15" placeholder="ひとこと (15文字まで)">
         <button id="btn-save">ランキングに登録</button>
       </div>
+      <p id="save-note"></p>
       <div id="ranking-list"></div>
       <div id="gameover-actions">
         <button id="btn-retry">リトライ (X)</button>
@@ -3823,8 +3835,11 @@ function __asset(p) {
   const RANKING_BEST_KEY = 'BEST'; // ランキング画面の「自己ベスト」タブ
   const RANKING_HISTORY_KEY = 'HISTORY'; // ランキング画面の「プレイ履歴」タブ
   const RANKING_FAVORITES_KEY = 'FAVORITES'; // ランキング画面の「お気に入り」タブ
-  function loadRanking(diffKey) {
-    const all = loadAllRankings();
+  // この端末に残っている自分の記録(自己ベストの計算や、共有ランキングにつながらない時の表示に使う)
+  function loadLocalRanking(diffKey) {
+    return pickRanking(loadAllRankings(), diffKey);
+  }
+  function pickRanking(all, diffKey) {
     if (diffKey === RANKING_ALL_KEY) {
       const merged = [];
       Object.keys(DIFFICULTIES).forEach((key) => {
@@ -3836,10 +3851,117 @@ function __asset(p) {
     return Array.isArray(all[diffKey]) ? all[diffKey] : [];
   }
 
+  // ---- みんなで共有するランキング(Firebase Realtime Database の REST API) ----
+  // 保存先: <URL>/<SHARED_RANKING_ROOT>/r/<難易度>/<記録ID> に名前・点数など(軽いもの)、
+  //         <URL>/<SHARED_RANKING_ROOT>/p/<記録ID> にリプレイ(重いので、再生する時だけ読む)。
+  // SHARED_RANKING_URL が空の間は、これまで通りこの端末の中だけのランキングで動く。
+  // 公開ページ以外(自分のパソコンでの試しプレイ)は別の置き場(_dev)に書いて、本番のランキングを汚さない。
+  const SHARED_RANKING_URL = 'https://free-86a66-default-rtdb.asia-southeast1.firebasedatabase.app';
+  const SHARED_RANKING_ROOT = location.hostname === 'spirit-edge.github.io' ? 'rt' : 'rt_dev';
+  const SHARED_RANKING_TIMEOUT_MS = 10000;
+  const SHARED_RANKING_CACHE_MS = 30000;
+  const sharedRanking = { data: null, failed: false, loading: null, fetchedAt: 0 };
+  const sharedRankingEnabled = () => SHARED_RANKING_URL !== '';
+
+  async function sharedRankingCall(method, path, body) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), SHARED_RANKING_TIMEOUT_MS);
+    try {
+      const res = await fetch(SHARED_RANKING_URL + '/' + SHARED_RANKING_ROOT + path, {
+        method,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) return { ok: false, json: null };
+      return { ok: true, json: await res.json() };
+    } catch (e) {
+      return { ok: false, json: null };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // 難易度ごとに点数の上位RANKING_STORE_MAX件を読む。force=trueなら、直前に読んだ分があっても読み直す。
+  // 読み込みが終わったら、いま開いているランキングの表示を新しいデータで描き直す。
+  function refreshSharedRanking(force) {
+    if (!sharedRankingEnabled()) return Promise.resolve(false);
+    if (sharedRanking.loading) return sharedRanking.loading;
+    if (!force && sharedRanking.data && Date.now() - sharedRanking.fetchedAt < SHARED_RANKING_CACHE_MS) return Promise.resolve(true);
+    sharedRanking.loading = (async () => {
+      const keys = Object.keys(DIFFICULTIES);
+      const results = await Promise.all(keys.map((key) => sharedRankingCall(
+        'GET', '/r/' + key + '.json?orderBy=%22score%22&limitToLast=' + RANKING_STORE_MAX)));
+      sharedRanking.loading = null;
+      if (results.some((r) => !r.ok)) {
+        if (!sharedRanking.data) sharedRanking.failed = true; // 前に読めた分があれば、それを出し続ける
+        redrawRankingViews();
+        return false;
+      }
+      const data = {};
+      keys.forEach((key, i) => {
+        const obj = results[i].json && typeof results[i].json === 'object' ? results[i].json : {};
+        data[key] = Object.keys(obj)
+          .filter((id) => obj[id] && Number.isFinite(obj[id].score))
+          .map((id) => ({ ...obj[id], rid: id }))
+          .sort((a, b) => (b.score - a.score) || (a.rid < b.rid ? -1 : 1));
+      });
+      sharedRanking.data = data;
+      sharedRanking.failed = false;
+      sharedRanking.fetchedAt = Date.now();
+      redrawRankingViews();
+      return true;
+    })();
+    return sharedRanking.loading;
+  }
+
+  function redrawRankingViews() {
+    if (!rankingScreen.classList.contains('hidden')) renderRankingPreview();
+    if (!gameoverScreen.classList.contains('hidden')) {
+      renderRanking(rankingListEl, loadRanking(state.difficulty), rankingEmptyMessage('まだ記録がありません'), state.difficulty, RANKING_MAX, 'result');
+    }
+  }
+
+  // 共有ランキングが読めている間はそれを、まだ・読めなかった時は、この端末の記録を出す。
+  function loadRanking(diffKey) {
+    if (sharedRankingEnabled() && sharedRanking.data) return pickRanking(sharedRanking.data, diffKey);
+    if (sharedRankingEnabled() && !sharedRanking.failed) return []; // 読み込み中
+    return loadLocalRanking(diffKey);
+  }
+  function rankingEmptyMessage(base) {
+    if (sharedRankingEnabled() && !sharedRanking.data && !sharedRanking.failed) return 'ランキングを読み込み中…';
+    return base;
+  }
+
+  // 記録を共有ランキングに送る。送れたらtrue。リプレイ付きなら、リプレイは別の場所(p)に置く。
+  async function submitSharedRanking(diffKey, entry) {
+    if (!sharedRankingEnabled()) return false;
+    const rid = Date.now().toString(36) + Math.floor(nativeRandom() * 36 ** 6).toString(36).padStart(6, '0');
+    const row = {
+      name: entry.name, score: entry.score, date: entry.date, message: entry.message,
+      v: entry.replay ? entry.replay.v : GAME_VERSION,
+    };
+    if (entry.build) row.build = entry.build;
+    const update = { ['r/' + diffKey + '/' + rid]: row };
+    if (entry.replay) {
+      row.rp = 1;
+      update['p/' + rid] = entry.replay;
+    }
+    const res = await sharedRankingCall('PATCH', '.json', update);
+    if (!res.ok) return false;
+    entry.rid = rid;
+    return true;
+  }
+
+  // 共有ランキングのリプレイを取ってくる(記録に付いているrid → p/<rid>)。取れなければnull。
+  async function fetchSharedReplay(rid) {
+    const res = await sharedRankingCall('GET', '/p/' + encodeURIComponent(rid) + '.json');
+    return res.ok && res.json && typeof res.json === 'object' ? res.json : null;
+  }
+
   // 登録する記録: 名前・点数・日付・ひとことメッセージ・遊んだ時のカスタム設定(HP/シールド/残機/テクニックの段階とスキル)
   function addRankingEntry(diffKey, name, score, message, build, replay) {
     const all = loadAllRankings();
-    const list = loadRanking(diffKey);
+    const list = loadLocalRanking(diffKey);
     const entry = {
       name: (name || 'no name').slice(0, RANKING_NAME_MAX),
       score,
@@ -3873,7 +3995,7 @@ function __asset(p) {
 
   function bestFor(diffKey) {
     const stored = loadBests()[diffKey];
-    const top = loadRanking(diffKey)[0];
+    const top = loadLocalRanking(diffKey)[0]; // 自己ベストは、共有ランキングではなく自分の記録だけで決める
     const candidates = [stored, top].filter((e) => e && Number.isFinite(e.score));
     if (candidates.length === 0) return null;
     const best = candidates.reduce((a, b) => (b.score > a.score ? b : a));
@@ -4059,7 +4181,8 @@ function __asset(p) {
   // リプレイ付きの記録は、名前を押すとその人のプレイを再生する。ゲームのバージョンが違う記録は、
   // 同じ操作でも結果が変わってしまうので、再生できない(名前の上にマウスを置くと理由が出る)。
   function decorateReplayName(row, entry, replayOrigin, linkText) {
-    const rp = entry.replay;
+    // 共有ランキングの記録は、リプレイ本体を持たない(rp=1の印とバージョンvだけ)。再生する時に取りに行く。
+    const rp = entry.replay || (entry.rid && entry.rp ? { v: entry.v } : null);
     if (!replayOrigin || !rp) return;
     const nameEl = row.querySelector('.rank-name');
     if (!nameEl) return;
@@ -4069,7 +4192,19 @@ function __asset(p) {
       link.className = 'rank-name-link';
       link.title = 'クリックでリプレイを再生';
       link.textContent = linkText || (entry.plainName ? entry.name : maskText(entry.name || 'no name'));
-      link.addEventListener('click', () => startReplay(entry, replayOrigin));
+      link.addEventListener('click', async () => {
+        if (entry.replay) return startReplay(entry, replayOrigin);
+        link.disabled = true;
+        link.title = 'リプレイを読み込み中…';
+        const replay = await fetchSharedReplay(entry.rid);
+        link.disabled = false;
+        link.title = 'クリックでリプレイを再生';
+        if (!replay) {
+          window.alert('リプレイを読み込めませんでした。しばらくしてからもう一度お試しください。');
+          return;
+        }
+        startReplay({ ...entry, replay }, replayOrigin);
+      });
       nameEl.textContent = '';
       nameEl.appendChild(link);
     } else {
@@ -4237,7 +4372,7 @@ function __asset(p) {
     } else if (diffKey === RANKING_BEST_KEY) {
       renderBestList(body);
     } else {
-      renderRanking(body, loadRanking(diffKey), 'まだ記録がありません。プレイしてランキングに載ろう！', diffKey, RANKING_STORE_MAX, 'ranking');
+      renderRanking(body, loadRanking(diffKey), rankingEmptyMessage('まだ記録がありません。プレイしてランキングに載ろう！'), diffKey, RANKING_STORE_MAX, 'ranking');
     }
     rankingPreviewEl.append(tabs, body);
   }
@@ -4458,6 +4593,7 @@ function __asset(p) {
     state.screen = 'ranking';
     if (keepTab !== true) rankingPreviewDiff = RANKING_ALL_KEY; // 最初は総合ランキング
     renderRankingPreview();
+    refreshSharedRanking(false); // みんなのランキングを読み込む(読めたら表示を描き直す)
   }
 
   // 難易度選択画面(最初に選ぶ): タイトルの「はじめる」から来る。難易度を選ぶと、その難易度の
@@ -4769,10 +4905,12 @@ function __asset(p) {
     nameInput.value = loadLastName(); // 前に登録した名前を最初から入れておく
     messageInput.value = '';
     document.getElementById('btn-save').disabled = false;
+    document.getElementById('save-note').textContent = '';
     captureRunEnd();
     recordBest(state.difficulty, state.score, state.lastRunBuild, state.lastReplay);
-    renderRanking(rankingListEl, loadRanking(state.difficulty), 'まだ記録がありません', state.difficulty, RANKING_MAX, 'result');
+    renderRanking(rankingListEl, loadRanking(state.difficulty), rankingEmptyMessage('まだ記録がありません'), state.difficulty, RANKING_MAX, 'result');
     gameoverScreen.classList.remove('hidden');
+    refreshSharedRanking(true); // 他の人の最新の記録を読む(読めたら一覧を描き直す)
     playWaitBgm();
   }
 
@@ -5103,10 +5241,12 @@ function __asset(p) {
     nameInput.value = loadLastName(); // 前に登録した名前を最初から入れておく
     messageInput.value = '';
     document.getElementById('btn-save').disabled = false;
+    document.getElementById('save-note').textContent = '';
     captureRunEnd();
     recordBest(state.difficulty, state.score, state.lastRunBuild, state.lastReplay);
-    renderRanking(rankingListEl, loadRanking(state.difficulty), 'まだ記録がありません', state.difficulty, RANKING_MAX, 'result');
+    renderRanking(rankingListEl, loadRanking(state.difficulty), rankingEmptyMessage('まだ記録がありません'), state.difficulty, RANKING_MAX, 'result');
     gameoverScreen.classList.remove('hidden');
+    refreshSharedRanking(true); // 他の人の最新の記録を読む(読めたら一覧を描き直す)
     playWaitBgm();
   }
 
@@ -7913,12 +8053,38 @@ function __asset(p) {
     saveLastName(name);
     const { list, entry } = addRankingEntry(state.difficulty, name, state.score, message, state.lastRunBuild || state.build, state.lastReplay);
     attachProfileToBest(state.difficulty, state.score, name, message);
-    renderRanking(rankingListEl, list, 'まだ記録がありません', state.difficulty, RANKING_MAX, 'result');
     document.getElementById('btn-save').disabled = true;
-    // 順位は、300位までに入れた時だけ分かる(圏外ならnull)。Xに投稿する文章と画像に使う。
-    const rank = list.indexOf(entry) + 1;
-    state.shareInfo = { rank: rank > 0 ? rank : null, name: entry.name, message: entry.message };
-    attachRegistrationToHistory(state.lastRunId, { name: entry.name, message: entry.message, rank: rank > 0 ? rank : null });
+    if (!sharedRankingEnabled()) {
+      renderRanking(rankingListEl, list, 'まだ記録がありません', state.difficulty, RANKING_MAX, 'result');
+      // 順位は、300位までに入れた時だけ分かる(圏外ならnull)。Xに投稿する文章と画像に使う。
+      const rank = list.indexOf(entry) + 1;
+      state.shareInfo = { rank: rank > 0 ? rank : null, name: entry.name, message: entry.message };
+      attachRegistrationToHistory(state.lastRunId, { name: entry.name, message: entry.message, rank: rank > 0 ? rank : null });
+      return;
+    }
+    // みんなのランキングに送る。順位は、送れて読み直せてから決まる(それまでは順位なし)。
+    const runId = state.lastRunId;
+    const diffKey = state.difficulty;
+    const saveNote = document.getElementById('save-note');
+    saveNote.textContent = 'ランキングに送っています…';
+    state.shareInfo = { rank: null, name: entry.name, message: entry.message };
+    attachRegistrationToHistory(runId, { name: entry.name, message: entry.message, rank: null });
+    (async () => {
+      const sent = await submitSharedRanking(diffKey, entry);
+      if (!sent) {
+        saveNote.textContent = 'ランキングに送れませんでした(この端末の記録には残しました)。通信を確かめて、もう一度お試しください。';
+        document.getElementById('btn-save').disabled = false;
+        return;
+      }
+      await refreshSharedRanking(true);
+      saveNote.textContent = 'みんなのランキングに登録しました！';
+      const shared = sharedRanking.data ? sharedRanking.data[diffKey] : [];
+      const idx = shared.findIndex((e) => e.rid === entry.rid);
+      const rank = idx >= 0 ? idx + 1 : null; // 300位までに入れた時だけ分かる(圏外ならnull)
+      if (state.lastRunId !== runId) return; // 登録の途中で別の試合に移っていたら、結果画面には触らない
+      state.shareInfo = { rank, name: entry.name, message: entry.message };
+      attachRegistrationToHistory(runId, { name: entry.name, message: entry.message, rank });
+    })();
   });
 
   // ---- お気に入りに登録(結果画面。ゲームオーバー・クリアのどちらでも) ----
@@ -8111,7 +8277,7 @@ function __asset(p) {
     syncMaskUI();
     renderRankingPreview();
     if (!gameoverScreen.classList.contains('hidden')) {
-      renderRanking(rankingListEl, loadRanking(state.difficulty), 'まだ記録がありません', state.difficulty, RANKING_MAX, 'result');
+      renderRanking(rankingListEl, loadRanking(state.difficulty), rankingEmptyMessage('まだ記録がありません'), state.difficulty, RANKING_MAX, 'result');
     }
     updateReplayNameTag();
   });
