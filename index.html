@@ -1175,6 +1175,91 @@ button:disabled {
 }
 
 
+.rank-empty {
+  text-align: center;
+  font-size: 12px;
+}
+
+
+#screen-ranking #ranking-preview {
+  max-width: 1232px;
+}
+
+#screen-ranking #ranking-preview h3 {
+  margin-bottom: 8px;
+  font-size: 19px;
+}
+
+#screen-ranking .rank-tabs {
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+#screen-ranking .rank-tab {
+  width: 104px;
+  padding: 5px 0;
+  font-size: 15px;
+}
+
+#screen-ranking .rank-row {
+  grid-template-columns: 44px 88px 220px 104px 84px 250px 310px;
+  min-width: 1160px;
+  padding: 5px 8px;
+  font-size: 17px;
+}
+
+#screen-ranking .rank-row .rank-diff {
+  padding: 0 7px;
+  font-size: 12px;
+}
+
+#screen-ranking .rank-row .rank-date,
+#screen-ranking .rank-row .rank-msg {
+  font-size: 15px;
+}
+
+#screen-ranking .rank-row .rank-build {
+  font-size: 15px;
+}
+
+#screen-ranking .rank-cust i {
+  font-size: 13px;
+}
+
+#screen-ranking .rank-row.rank-head,
+#screen-ranking .rank-row.rank-head .rank-diff {
+  font-size: 14px;
+}
+
+#screen-ranking .rank-row.rank-hist {
+  grid-template-columns: 44px 88px 130px 104px 130px 280px 300px;
+}
+
+#screen-ranking .rank-row.rank-hist.rank-fav {
+  grid-template-columns: 44px 88px 130px 104px 130px 250px 290px 52px;
+}
+
+#screen-ranking .rank-fav-remove {
+  width: 32px;
+  height: 26px;
+  font-size: 16px;
+}
+
+#screen-ranking .rank-scroll {
+  min-width: 1160px;
+  max-height: 400px;
+}
+
+
+#screen-ranking .rank-body {
+  min-height: 480px;
+}
+
+#screen-ranking .rank-empty {
+  font-size: 17px;
+}
+
+
 .volume-box {
   width: min(420px, 80%);
   margin-top: 8px;
@@ -1931,6 +2016,57 @@ button:disabled {
   white-space: nowrap;
 }
 
+
+#access-counter {
+  position: absolute;
+  top: calc(5% + 54px);
+  right: 3%;
+  z-index: 1;
+  width: 178px;
+  padding: 9px 12px 8px;
+  border: 1px solid rgba(92, 200, 255, 0.6);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(14, 46, 108, 0.78), rgba(6, 22, 58, 0.82));
+  box-shadow: 0 0 12px rgba(60, 170, 255, 0.45), inset 0 0 12px rgba(120, 210, 255, 0.22);
+  color: #eaf8ff;
+  pointer-events: none;
+}
+
+#access-counter .ac-title {
+  margin-bottom: 5px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(120, 200, 255, 0.35);
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.14em;
+  text-align: center;
+  color: #9fe3ff;
+}
+
+#access-counter .ac-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+#access-counter .ac-row span {
+  color: #cfe9ff;
+}
+
+#access-counter .ac-row b {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 6px rgba(130, 215, 255, 0.8);
+}
+
+#access-counter .ac-row.ac-total b {
+  font-size: 18px;
+  color: #ffe08a;
+}
+
 </style>
 </head>
 <body>
@@ -2008,6 +2144,12 @@ button:disabled {
       <button id="btn-title-share" type="button" title="Xでゲームを紹介する">
         <svg class="x-logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>で共有
       </button>
+            <div id="access-counter" aria-label="遊ばれた数">
+        <div class="ac-title">遊ばれた数</div>
+        <div class="ac-row"><span>今日</span><b id="ac-today">--</b></div>
+        <div class="ac-row"><span>昨日</span><b id="ac-yesterday">--</b></div>
+        <div class="ac-row ac-total"><span>今まで</span><b id="ac-total">--</b></div>
+      </div>
       <p class="title-note">※本ゲームは音が流れます。調整は下部の各種設定で行ってください</p>
     </div>
 
@@ -3943,7 +4085,7 @@ function __asset(p) {
       const p = document.createElement('p');
       p.textContent = emptyMessage;
       p.style.textAlign = 'center';
-      p.style.fontSize = '12px';
+      p.className = 'rank-empty';
       container.appendChild(p);
       return;
     }
@@ -4000,7 +4142,7 @@ function __asset(p) {
       const p = document.createElement('p');
       p.textContent = emptyText;
       p.style.textAlign = 'center';
-      p.style.fontSize = '12px';
+      p.className = 'rank-empty';
       container.appendChild(p);
       return;
     }
@@ -4328,12 +4470,73 @@ function __asset(p) {
     playWaitBgm();
   }
 
+  // ---- 遊ばれた数のカウンター(TOP画面): 今日・昨日・今まで ----
+  // 数える場所は、登録不要の無料カウンターAPI(abacus)。送るのは「1回増やす」という合図だけで、
+  // 名前・点数などの個人情報や記録は送らない。数えるのは試合を始めた時(startGame)で、リプレイの再生は数えない。
+  // 公開ページ(GitHub Pages)以外 = 自分のパソコンでの確認などは別の名前(-dev)に数えて、公開中の数を増やさない。
+  // 「今日」の区切りは、遊んだ人の時計ではなく日本時間の0時にそろえる。
+  // 通信に失敗しても(オフライン・サービス停止)、ゲームには影響せず、表示が「--」になるだけ。
+  const ACCESS_COUNTER_URL = 'https://abacus.jasoncameron.dev';
+  const ACCESS_COUNTER_NS = location.hostname === 'spirit-edge.github.io' ? 'spirit-edge-trap-rhythm' : 'spirit-edge-trap-rhythm-dev';
+  const ACCESS_COUNTER_TOTAL_KEY = 'total';
+  const ACCESS_COUNTER_TIMEOUT_MS = 8000;
+  const acTodayEl = document.getElementById('ac-today');
+  const acYesterdayEl = document.getElementById('ac-yesterday');
+  const acTotalEl = document.getElementById('ac-total');
+
+  // 日本時間の日付をキーにする(例: d20261030)。offsetDaysに-1を渡すと昨日。
+  function accessCounterDayKey(offsetDays) {
+    const t = new Date(Date.now() + 9 * 60 * 60 * 1000 + offsetDays * 24 * 60 * 60 * 1000);
+    const p2 = (n) => String(n).padStart(2, '0');
+    return 'd' + t.getUTCFullYear() + p2(t.getUTCMonth() + 1) + p2(t.getUTCDate());
+  }
+
+  // action: 'get'(読むだけ) / 'hit'(1増やして、増えた後の数を返す)。数が取れなければnull。
+  // まだ誰も数えていない日(キーが無い=404)は0として扱う。
+  async function accessCounterCall(action, key) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ACCESS_COUNTER_TIMEOUT_MS);
+    try {
+      const res = await fetch(ACCESS_COUNTER_URL + '/' + action + '/' + ACCESS_COUNTER_NS + '/' + key, { signal: ctrl.signal, cache: 'no-store' });
+      if (res.status === 404) return 0;
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Number.isFinite(data.value) ? data.value : null;
+    } catch (e) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function showAccessCount(el, value) {
+    el.textContent = value === null ? '--' : fmtNum(value);
+  }
+
+  async function refreshAccessCounter() {
+    const [today, yesterday, total] = await Promise.all([
+      accessCounterCall('get', accessCounterDayKey(0)),
+      accessCounterCall('get', accessCounterDayKey(-1)),
+      accessCounterCall('get', ACCESS_COUNTER_TOTAL_KEY),
+    ]);
+    showAccessCount(acTodayEl, today);
+    showAccessCount(acYesterdayEl, yesterday);
+    showAccessCount(acTotalEl, total);
+  }
+
+  // 試合を始めるたびに、「今日」と「今まで」を1ずつ増やす(返事は待たない)。表示はTOPに戻った時に更新する。
+  function countPlay() {
+    accessCounterCall('hit', accessCounterDayKey(0));
+    accessCounterCall('hit', ACCESS_COUNTER_TOTAL_KEY);
+  }
+
   function goToTitle() {
     playSelectSound();
     hideAllMenuScreens();
     titleScreen.classList.remove('hidden');
     state.screen = 'title';
     playWaitBgm();
+    refreshAccessCounter();
   }
 
   function selectDifficulty(key) {
@@ -4510,6 +4713,7 @@ function __asset(p) {
   function startGame() {
     playSelectSound();
     getAudioCtx();
+    countPlay();
     // この試合の種を決めて、乱数を種から作る(ゲーム開始時の抽選もこの乱数)。ここから操作の記録を始める。
     const seed = (nativeRandom() * 4294967296) >>> 0;
     logicRandom = makeSeededRandom(seed);
@@ -7968,6 +8172,7 @@ function __asset(p) {
   renderLegend();
   renderScoreTab();
   updateLivesUI();
+  refreshAccessCounter();
 })();
 
 </script>
